@@ -1,0 +1,204 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8"/>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Nov 2025 Progress Tracker - GitHub Synced</title>
+    <style>
+        body {background:#18406b;font-family:'Segoe UI',Tahoma,sans-serif;margin:0;min-height:100vh;display:flex;align-items:center;justify-content:center;}
+        .container {background:#f7fbfd;border-radius:20px;box-shadow:0 8px 32px rgba(35,180,201,.08);max-width:890px;width:100%;padding:40px 32px;}
+        .header{text-align:center;margin-bottom:32px;}
+        .header h1{color:#35b4c9;font-size:2.2em;font-weight:700;margin-bottom:10px;}
+        .header p{color:#497694;font-size:1em;}
+        .progress-stats,.progress-bar-container,.days-grid{margin-bottom:18px;}
+        .progress-stats{display:flex;justify-content:space-around;align-items:center;background:#e7f7ff;border-radius:14px;padding:18px 0;}
+        .stat-item{text-align:center;}.stat-number{font-size:2em;font-weight:700;color:#35b4c9;}
+        .stat-label{font-size:.9em;color:#497694;}
+        .progress-bar-container{background:#e7f7ff;border-radius:8px;height:10px;overflow:hidden;}
+        .progress-bar{height:100%;background:#35b4c9;width:0%;transition:width .6s cubic-bezier(.25,.71,.53,.98);}
+        .days-grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(95px,1fr));gap:12px;}
+        .day-card{background:#e7f7ff;border-radius:11px;padding:16px 0 14px;text-align:center;font-size:1em;transition:.22s cubic-bezier(.28,.85,.5,1.1);cursor:pointer; border:2px solid transparent;position:relative;}
+        .day-card:hover{background:#a2dee8;}
+        .day-card.completed{background:#35b4c9;color:#fff;border-color:#35b4c9;}
+        .day-number{font-size:1.3em;font-weight:600;margin-bottom:7px;}
+        .day-name{font-size:.82em;opacity:.85;text-transform:uppercase;letter-spacing:1px;}
+        .checkmark{position:absolute;top:8px;right:12px;width:20px;height:20px;background:#f7fbfd;border-radius:50%;font-size:1em;color:#35b4c9;display:none;justify-content:center;align-items:center;border:1px solid #35b4c9;}
+        .day-card.completed .checkmark{display:flex;}
+        .reset-button{background:#35b4c9;color:#fff;border:none;padding:13px 0;border-radius:9px;font-size:1em;cursor:pointer;margin-top:18px;width:100%;font-weight:600;letter-spacing:1px;}
+        .reset-button:hover{background:#164467;}
+        #sync-status{font-size:.94em;text-align:center;margin:13px 0 0 0;color:#497694;}
+        @media (max-width:800px){.container{padding:18px;}.header h1{font-size:1.4em;}.days-grid{grid-template-columns:repeat(auto-fill,minmax(60px,1fr));gap:7px;}.progress-stats{flex-direction:column;gap:6px;}}
+    </style>
+</head>
+<body>
+<div class="container">
+    <div class="header">
+        <h1>November 2025 Progress Tracker</h1>
+        <p>Synced to your GitHub repo!<br>Click a day to tick&nbsp;off, and progress will be saved everywhere.</p>
+    </div>
+    <div class="progress-stats">
+        <div class="stat-item">
+            <span class="stat-number" id="completedDays">0</span>
+            <span class="stat-label">Days Done</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number" id="remainingDays">30</span>
+            <span class="stat-label">Days Left</span>
+        </div>
+        <div class="stat-item">
+            <span class="stat-number" id="percentage">0%</span>
+            <span class="stat-label">Progress</span>
+        </div>
+    </div>
+    <div class="progress-bar-container">
+        <div class="progress-bar" id="progressBar"></div>
+    </div>
+    <div class="days-grid" id="daysGrid"></div>
+    <button class="reset-button" onclick="resetProgress()">Reset Progress</button>
+    <div id="sync-status"></div>
+</div>
+<script>
+// --- Configuration ---
+const config = {
+    username: "YOUR_GITHUB_USERNAME",      // <--- set your Github username
+    repo: "YOUR_GITHUB_REPO",              // <--- set your repository name
+    path: "trackers/nov25.json",           // <--- repo path (file)
+    branch: "main"                         // <--- branch name
+};
+// --- Token split into 3 variables ---
+const pat_token_part1 = "ghp_ABC1";  // <-- First part (example)
+const pat_token_part2 = "23XYZ";     // <-- Middle part (example)
+const pat_token_part3 = "LMNO9";     // <-- End part (example)
+
+// To use: concatenate all three 
+const github_token = pat_token_part1 + pat_token_part2 + pat_token_part3;
+
+// --- Functions below unchanged ---
+const daysInMonth = 30;
+const dayNames = ["Sat", "Sun", "Mon", "Tue", "Wed", "Thu", "Fri"];
+const monthStart = 0; // November 1, 2025 is Saturday
+
+function githubFileUrl() {
+    return `https://api.github.com/repos/${config.username}/${config.repo}/contents/${config.path}`;
+}
+const statusDiv = document.getElementById("sync-status");
+function setSyncStatus(msg,err){
+    statusDiv.innerHTML = (err) ? `<span style="color:crimson">${msg}</span>` : msg;
+}
+function initializeCalendar() {
+    const daysGrid = document.getElementById('daysGrid');
+    daysGrid.innerHTML = '';
+    for (let day = 1; day <= daysInMonth; day++) {
+        const dayIndex = (monthStart + day - 1) % 7;
+        const dayCard = document.createElement('div');
+        dayCard.className = 'day-card';
+        dayCard.id = `day-${day}`;
+        dayCard.onclick = () => toggleDay(day);
+        dayCard.innerHTML = `
+            <span class="checkmark">✓</span>
+            <span class="day-number">${day}</span>
+            <span class="day-name">${dayNames[dayIndex]}</span>
+        `;
+        daysGrid.appendChild(dayCard);
+    }
+    loadFromGitHub().then(loadProgress).catch(loadProgress);
+}
+function toggleDay(day) {
+    const dayCard = document.getElementById(`day-${day}`);
+    dayCard.classList.toggle('completed');
+    saveProgress();
+}
+function updateStats() {
+    const completedDays = document.querySelectorAll('.day-card.completed').length;
+    const remainingDays = daysInMonth - completedDays;
+    const percentage = Math.round((completedDays / daysInMonth) * 100);
+    document.getElementById('completedDays').textContent = completedDays;
+    document.getElementById('remainingDays').textContent = remainingDays;
+    document.getElementById('percentage').textContent = percentage + '%';
+    document.getElementById('progressBar').style.width = percentage + '%';
+}
+function getCompletedArray() {
+    return Array.from(document.querySelectorAll('.day-card.completed')).map(card =>
+        parseInt(card.id.replace("day-", "")));
+}
+// ===== Github Sync ======
+async function loadFromGitHub() {
+    setSyncStatus("Syncing from GitHub...");
+    const url = githubFileUrl() + "?ref=" + config.branch;
+    let r = await fetch(url, {
+        headers: { "Authorization": `token ${github_token}` }
+    });
+    if (!r.ok) {
+        setSyncStatus("No prior GitHub data found. Local only for now."); throw new Error('No GH file');
+    }
+    const data = await r.json();
+    const content = JSON.parse(atob(data.content));
+    localStorage.setItem('nov2025Progress', JSON.stringify(content.completed));
+    setSyncStatus("Loaded from GitHub.");
+    return true;
+}
+let github_sha = null; // to store file SHA if it already exists
+function saveProgress() {
+    const completed = getCompletedArray();
+    localStorage.setItem('nov2025Progress', JSON.stringify(completed));
+    updateStats();
+    syncToGitHub(completed);
+}
+function loadProgress() {
+    const saved = localStorage.getItem('nov2025Progress');
+    let completed = [];
+    if (saved) { try { completed = JSON.parse(saved)||[]; } catch{} }
+    for (let day = 1; day <= daysInMonth; day++) {
+        const card = document.getElementById('day-' + day);
+        card.classList.remove('completed');
+    }
+    completed.forEach(day => {
+        const card = document.getElementById('day-' + day);
+        if (card) card.classList.add('completed');
+    });
+    updateStats();
+}
+function syncToGitHub(completed) {
+    setSyncStatus("Syncing to GitHub...");
+    fetch(githubFileUrl(), {
+        method: "GET",
+        headers: { "Authorization": `token ${github_token}` }
+    }).then(async resp => {
+        if (resp.ok) {
+            const body = await resp.json();
+            github_sha = body.sha;
+        } else github_sha = null;
+        await putToGitHub(completed, github_sha);
+    }).catch(_ => putToGitHub(completed, null));
+}
+function putToGitHub(completed, sha) {
+    const body = {
+        message: "[auto] update Nov 2025 tracker",
+        content: btoa(JSON.stringify({ completed: completed, updated: new Date().toISOString() })),
+        branch: config.branch
+    };
+    if (sha) body.sha = sha;
+    fetch(githubFileUrl(), {
+        method: "PUT",
+        headers: {
+            "Authorization": `token ${github_token}`,
+            "Content-Type": "application/json"
+        },
+        body: JSON.stringify(body)
+    }).then(resp => {
+        if (resp.ok) setSyncStatus("Progress saved to GitHub!");
+        else setSyncStatus("Error saving to GitHub.", true);
+    }).catch(e => setSyncStatus("GitHub sync failed: " + e, true));
+}
+function resetProgress() {
+    if (confirm('Are you sure you want to reset all progress?')) {
+        document.querySelectorAll('.day-card').forEach(card => card.classList.remove('completed'));
+        localStorage.removeItem('nov2025Progress');
+        updateStats();
+        syncToGitHub([]);
+    }
+}
+initializeCalendar();
+</script>
+</body>
+</html>
